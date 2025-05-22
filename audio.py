@@ -4,7 +4,7 @@ from helper import *
 
 # Load audio files
 bruh = ft.Audio(src="data/amongus.mp3", autoplay=False, volume=0.5)
-background_music = ft.Audio(src="data/kahoot.mp3", autoplay=False, volume=VOLUME)
+background_music = ft.Audio(src="data/background.mp3", autoplay=False, volume=VOLUME)
 
 
 # Container for audio controls
