@@ -5,7 +5,7 @@ import flet as ft
 import asyncio
 
 # Game constants
-MIN_PLAYERS = 3
+MIN_PLAYERS = 0
 MAX_PLAYERS = 8
 ROOM_CODE_LENGTH = 4
 COUNTDOWN_SECONDS = 5
@@ -60,4 +60,31 @@ async def countdown(countdown_text: ft.Text, page: ft.Page):
         page.update()
         await asyncio.sleep(1)
     countdown_text.value = "Go!"
+    page.update()
+
+
+
+def create_banner(text: str, page: ft.Page):
+    def close_banner(e):
+        page.close(b)
+
+
+    b = ft.Banner(
+        bgcolor=ft.Colors.AMBER_100,
+        leading=ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, color=ft.Colors.AMBER, size=40),
+        content=ft.Text(
+            value=text,
+            color=ft.Colors.BLACK,
+        ),
+        actions=[
+            ft.TextButton(text="Close", style=ft.ButtonStyle(color=ft.Colors.BLUE), on_click=close_banner)
+        ],
+    )
+
+
+    page.add(b)
+    page.open(b)
+    page.update()
+    time.sleep(3)  # Keep the banner open for 5 seconds
+    page.close(b)
     page.update()

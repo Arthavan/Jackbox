@@ -15,9 +15,6 @@ from audio import *
 
 
 
-
-
-
 def main(page: ft.Page):
     page.title = "Flet Chat"
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
@@ -25,19 +22,22 @@ def main(page: ft.Page):
     add(page)
 
 
-    #Create Random Player
-    player_initial_name = f"Player{random.randint(100, 999)}"
-    player = Player(name=player_initial_name, page=page)
-    page.session.set("player_name", player_initial_name)
+    #Player
+    if page.client_storage.contains_key("player_name"):
+        player_initial_name = page.session.get("player_name")
+    else:
+        player_initial_name = f"Player{random.randint(100, 999)}"
+        player = Player(name=player_initial_name, page=page)
+        page.client_storage.set("player_name", player_initial_name)
 
 
     # Create a TextField popup for the player to enter their name
-    player_name_flet = ft.TextField(page.session.get("player_name"), read_only=True, width=200, border=ft.InputBorder.NONE)
+    player_name_flet = ft.TextField(page.client_storage.get("player_name"), read_only=True, width=200, border=ft.InputBorder.NONE)
 
     def submit_name(e):
         name = player_name_flet.value.strip()
         if name and name not in rooms:
-            page.session.set("player_name", name)
+            page.client_storage.set("player_name", name)
             player_name_flet.read_only = True
             player_name_flet.border = ft.InputBorder.NONE
             player_name_flet.update()
@@ -69,15 +69,14 @@ def main(page: ft.Page):
         page.appbar.bgcolor = MAIN_COLOR
         page.update()
         
-    volume_slider = ft.Slider(min=0, max=1, divisions=10, label="{value}%", value=0.5, width=300)
-
     def on_volume_change(e):
         VOLUME = volume_slider.value
         background_music.volume = VOLUME
         #print("Volume changed to: ", VOLUME)
         background_music.update()
 
-    volume_slider.on_change = on_volume_change
+    volume_slider = ft.Slider(min=0, max=1, divisions=10, label="{value}%", value=0.5, width=300, on_change=on_volume_change)
+
 
     page.appbar = ft.AppBar(
         leading=ft.Row([ft.IconButton(ft.Icons.ACCOUNT_CIRCLE_OUTLINED, on_click=change_name, hover_color=ft.Colors.AMBER), player_name_flet]),
@@ -115,7 +114,7 @@ def main_menu(page: ft.Page):
 
     join_input = ft.TextField(label="Enter Room Code", width=200)
 
-    def go_to_lobby(e):
+    '''def go_to_lobby(e):
         room_code = generate_room_code()
         rooms[room_code] = {
             "players": [],
@@ -126,24 +125,24 @@ def main_menu(page: ft.Page):
         page.session.set("room_code", room_code)
         page.session.set("is_host", True)
         rooms[room_code]["players"].append(page.session.get("player_name"))
-        lobby(page)
+        lobby(page)'''
 
     def join_room(e):
         code = join_input.value.upper()
         if code in rooms:
-            page.session.set("room_code", code)
-            page.session.set("is_host", False)
+            page.client_storage.set("room_code", code)
+            page.client_storage.set("is_host", False)
+            page.pubsub.send_all_on_topic("PlayerJoined", [page.client_storage.get("player_name"), page])
             lobby(page)
         else:
-            page.snack_bar = ft.SnackBar(ft.Text("Room not found"))
-            page.snack_bar.open = True
-            page.update()
+            create_banner("Room Not Found", page)
+            
 
     def create_room(e):
         room_code = generate_room_code()
         rooms[room_code] = GameRoom(code=room_code)
-        page.session.set("room_code", room_code)
-        page.session.set("is_host", True)
+        page.client_storage.set("room_code", room_code)
+        page.client_storage.set("is_host", True)
         lobby(page)
 
 
@@ -161,15 +160,19 @@ def lobby(page: ft.Page):
     page.vertical_alignment = ft.MainAxisAlignment.CENTER
 
 
-    room_code = page.session.get("room_code")
-    player_name = page.session.get("player_name")
-    is_host = page.session.get("is_host")
+    room_code = page.client_storage.get("room_code")
+    player_name = page.client_storage.get("player_name")
+    is_host = page.client_storage.get("is_host")
 
     if room_code not in rooms:
         main_menu(page)
         return
 
     room = rooms[room_code]
+    room.players[player_name] = Player(name=player_name, page=page, is_host=is_host)
+
+
+
 
     def start_game(e):
         if len(room.players) < MIN_PLAYERS:
@@ -192,34 +195,89 @@ def lobby(page: ft.Page):
 
         # Notify all players to start the game
         for player in room.players.values():
+            page.pubsub.send_others_on_topic("GameStarted", [player.name, player.page])
             player.page.go("/game")
         
         print(f"Game started in room {room_code} with faker: {room.faker}")
-        game(page)
+        asyncio.run(game(page))
+
+    def leave_room(e):
+        #print("Leaving room")
+        if page.client_storage.get("is_host"):
+            if room_code in rooms:
+                del rooms[room_code]
+                page.client_storage.remove("room_code")
+                page.client_storage.remove("is_host")
+                page.pubsub.send_all_on_topic("PlayerLeft", [player_name, page])
+                main_menu(page)
+        else:
+            
+            page.pubsub.send_all_on_topic("PlayerLeft", [player_name, page])
+            page.client_storage.remove("room_code")
+            page.client_storage.remove("is_host")
+            main_menu(page)
 
     page.add(ft.Text(f"Room Code: {room.code}"))
     page.add(ft.Text(f"Players: {', '.join(room.players.keys())}"))
     if is_host:
         page.add(ft.ElevatedButton("Start Game", on_click=start_game))
-    page.add(ft.ElevatedButton("Leave Room", on_click=lambda e: main_menu(page)))
+    page.add(ft.ElevatedButton("Leave Room", on_click=leave_room))
     page.update()
 
 
 
+    def on_player_joined(e, message):
+        name, p = message
+        if name == page.client_storage.get("player_name"):
+            return
+        #print("Player Joined")
+        #print(room.players)
+        page.controls.clear()
+        room.players[name] = Player(name=name, page=p, is_host=False)
+        page.add(ft.Text(f"Player {name} has joined the room."))
+        page.add(ft.Text(f"Room Code: {room.code}"))
+        page.add(ft.Text(f"Players: {', '.join(room.players.keys())}"))
+        if is_host:
+            page.add(ft.ElevatedButton("Start Game", on_click=start_game))
+        page.add(ft.ElevatedButton("Leave Room", on_click=leave_room))
+        page.update()
+
+    def on_player_left(e, message):
+        name, p = message
+        if name in room.players:
+            del room.players[name]
+            print(f"Player {name} has left the room.")
+            page.controls.clear()
+            page.add(ft.Text(f"Player {name} has left the room."))
+            page.add(ft.Text(f"Room Code: {room.code}"))
+            page.add(ft.Text(f"Players: {', '.join(room.players.keys())}"))
+            if is_host:
+                page.add(ft.ElevatedButton("Start Game", on_click=start_game))
+            page.add(ft.ElevatedButton("Leave Room", on_click=leave_room))
+            page.update()
+
+    page.pubsub.subscribe_topic("PlayerJoined", on_player_joined)
+    page.pubsub.subscribe_topic("PlayerLeft", on_player_left)
+    page.pubsub.subscribe_topic("GameStarted", lambda e, m: asyncio.run(game(page)) if m[0] == page.client_storage.get("player_name") else None)
+
+
 
 async def game(page: ft.Page):
+    room = rooms[page.client_storage.get("room_code")]
     print("Game started")
     page.controls.clear()
     # Countdown before starting the game
     countdown_text = ft.Text("Starting in 5", size=40)
     page.add(countdown_text)
-    countdown(countdown_text, page)
+    await countdown(countdown_text, page)
     await asyncio.sleep(1)  # Simulate countdown delay
     page.controls.clear()
 
 
-
-    role_text = ft.Text("You are a player in the game!", size=30)
+    if page.client_storage.get("player_name") == room.faker:
+        role_text = ft.Text(f"You are the Faker!", size=30)
+    else:
+        role_text = ft.Text(f"You are a normal chump!", size=30)
 
     page.add(role_text)
 
@@ -228,6 +286,45 @@ async def game(page: ft.Page):
     page.title = "Flet Chat - Game"
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.vertical_alignment = ft.MainAxisAlignment.CENTER
+    await asyncio.sleep(1)  # Simulate game start delay
+
+    page.add(ft.Text(f"Round {room.round_number} - Category: {room.current_category}"))
+    page.add(ft.Text(f"Prompt: {room.current_prompt}"))
+    page.add(ft.Text(f"Faker Prompt: {room.faker_prompt}"))
+    page.add(ft.Text(f"Faker: {room.faker}"))
+    page.add(ft.Text(f"Players: {', '.join([p.name for p in room.players.values()])}"))
+    page.add(ft.ElevatedButton("Vote", on_click=lambda e: vote(page)))
+    page.update()
+
+def vote(page: ft.Page):
+    room = rooms[page.client_storage.get("room_code")]
+    player_name = page.client_storage.get("player_name")
+    player = room.players[player_name]
+
+    if player.has_voted:
+        page.snack_bar = ft.SnackBar(ft.Text("You have already voted!"))
+        page.snack_bar.open = True
+        page.update()
+        return
+
+    def submit_vote(e):
+        vote = vote_input.value.strip()
+        if vote:
+            player.vote = vote
+            player.has_voted = True
+            room.votes[player_name] = vote
+            page.snack_bar = ft.SnackBar(ft.Text(f"You voted for: {vote}"))
+            page.snack_bar.open = True
+            page.update()
+        else:
+            page.snack_bar = ft.SnackBar(ft.Text("Vote cannot be empty!"))
+            page.snack_bar.open = True
+            page.update()
+
+    vote_input = ft.TextField(label="Enter your vote", width=200, on_submit=submit_vote)
+    page.add(vote_input)
+    page.add(ft.ElevatedButton("Submit Vote", on_click=submit_vote))
+    page.update()
 
 
 
