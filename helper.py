@@ -2,6 +2,7 @@ import string, random, time, threading, os
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Callable
 import flet as ft
+import asyncio
 
 # Game constants
 MIN_PLAYERS = 3
@@ -53,3 +54,10 @@ def generate_room_code() -> str:
         
 
 
+async def countdown(countdown_text: ft.Text, page: ft.Page):
+    for i in range(5, 0, -1):
+        countdown_text.value = f"Starting in {i}"
+        page.update()
+        await asyncio.sleep(1)
+    countdown_text.value = "Go!"
+    page.update()
