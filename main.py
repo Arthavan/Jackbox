@@ -11,29 +11,16 @@ from typing import Dict, List, Optional, Set, Callable
 import threading
 # My Helper Libraries
 from helper import * 
-from audio import *
+#from audio import *
+from flet_audio import Audio
 
+#Audio
+background_music = Audio(src="data/background.mp3", autoplay=False, volume=VOLUME)
+bruh = Audio(src="data/amongus.mp3", autoplay=False, volume=0.5)
 
-
-def main(page: ft.Page):
-    page.title = "Flet Chat"
-    page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
-    page.vertical_alignment = ft.MainAxisAlignment.CENTER
-    add(page)
-
-
-    #Player
-    if page.client_storage.contains_key("player_name"):
-        player_initial_name = page.session.get("player_name")
-    else:
-        player_initial_name = f"Player{random.randint(100, 999)}"
-        player = Player(name=player_initial_name, page=page)
-        page.client_storage.set("player_name", player_initial_name)
-
-
-    # Create a TextField popup for the player to enter their name
+def appbar(page: ft.Page):
     player_name_flet = ft.TextField(page.client_storage.get("player_name"), read_only=True, width=200, border=ft.InputBorder.NONE)
-
+    
     def submit_name(e):
         name = player_name_flet.value.strip()
         if name and name not in rooms:
@@ -97,9 +84,30 @@ def main(page: ft.Page):
             on_click=lambda e: toggle_theme()),
             ft.IconButton(ft.Icons.HELP, tooltip="Settings", on_click=lambda e: bruh.play()),
             background_music])
-    
-    main_menu(page)
     page.update()
+
+
+def main(page: ft.Page):
+    page.title = "Flet Chat"
+    page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+    page.vertical_alignment = ft.MainAxisAlignment.CENTER
+    page.overlay.append(background_music)
+    #Player
+    if page.client_storage.contains_key("player_name"):
+        player_initial_name = page.session.get("player_name")
+    else:
+        player_initial_name = f"Player{random.randint(100, 999)}"
+        player = Player(name=player_initial_name, page=page)
+        page.client_storage.set("player_name", player_initial_name)
+
+
+    # Create a TextField popup for the player to enter their name
+    appbar(page)
+
+
+    page.update()
+    main_menu(page)
+
 
 
 
@@ -107,10 +115,12 @@ def main(page: ft.Page):
 # ----- Main Menu ----
 def main_menu(page: ft.Page):
     page.controls.clear()
+    print("Main Menu")
     page.title = "Fakin' It Clone"
     page.theme_mode = "LIGHT"
     page.vertical_alignment = ft.MainAxisAlignment.CENTER
-
+    page.overlay.append(background_music)
+    appbar(page)
 
     join_input = ft.TextField(label="Enter Room Code", width=200)
 
@@ -209,6 +219,7 @@ def lobby(page: ft.Page):
                 page.client_storage.remove("room_code")
                 page.client_storage.remove("is_host")
                 page.pubsub.send_all_on_topic("PlayerLeft", [player_name, page])
+                page.controls.clear()
                 main_menu(page)
         else:
             
@@ -244,7 +255,7 @@ def lobby(page: ft.Page):
 
     def on_player_left(e, message):
         name, p = message
-        if name in room.players:
+        if name in room.players and room.players[name].page != page:
             del room.players[name]
             print(f"Player {name} has left the room.")
             page.controls.clear()

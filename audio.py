@@ -18,4 +18,3 @@ def add(page: ft.Page):
 
     audio_container.content = audio_container_row
     page.overlay.append(audio_container)
-    page.update()
