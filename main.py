@@ -299,43 +299,87 @@ async def game(page: ft.Page):
     page.vertical_alignment = ft.MainAxisAlignment.CENTER
     await asyncio.sleep(1)  # Simulate game start delay
 
+
+    #if faker
     page.add(ft.Text(f"Round {room.round_number} - Category: {room.current_category}"))
-    page.add(ft.Text(f"Prompt: {room.current_prompt}"))
-    page.add(ft.Text(f"Faker Prompt: {room.faker_prompt}"))
-    page.add(ft.Text(f"Faker: {room.faker}"))
+    if page.client_storage.get("player_name") == room.faker:
+        page.add(ft.Text("You are the Faker!"))
+        page.add(ft.Text(f"Faker Prompt: {room.faker_prompt}"))
+    else:
+        page.add(ft.Text("You are a normal player!"))
+        page.add(ft.Text(f"Prompt: {room.current_prompt}"))
     page.add(ft.Text(f"Players: {', '.join([p.name for p in room.players.values()])}"))
-    page.add(ft.ElevatedButton("Vote", on_click=lambda e: vote(page)))
-    page.update()
 
-def vote(page: ft.Page):
-    room = rooms[page.client_storage.get("room_code")]
-    player_name = page.client_storage.get("player_name")
-    player = room.players[player_name]
+    
+    
+    
+    #page.add(ft.Text(f"Faker: {room.faker}"))
 
-    if player.has_voted:
-        page.snack_bar = ft.SnackBar(ft.Text("You have already voted!"))
-        page.snack_bar.open = True
-        page.update()
-        return
-
-    def submit_vote(e):
-        vote = vote_input.value.strip()
-        if vote:
-            player.vote = vote
+    #Add all players as option to vote for
+    def vote(e: ft.ControlEvent):
+        
+        room = rooms[page.client_storage.get("room_code")]
+        player_name = page.client_storage.get("player_name")
+        player = room.players[player_name]
+        
+        if player.has_voted:
+            page.snack_bar = ft.SnackBar(ft.Text("You have already voted!"))
+            page.snack_bar.open = True
+            page.update()
+            return
+        
+        # Get the selected vote option
+        selected_vote = page.controls[-1].value  # Assuming the last control is the vote button
+        if selected_vote:
+            player.vote = selected_vote
             player.has_voted = True
-            room.votes[player_name] = vote
-            page.snack_bar = ft.SnackBar(ft.Text(f"You voted for: {vote}"))
-            page.snack_bar.open = True
-            page.update()
+            room.votes[player_name] = selected_vote
+            page.pubsub.send_all_on_topic("VoteCast", [player_name, selected_vote, page])
+            page.add(ft.Text(f"You voted for: {selected_vote}"))
         else:
-            page.snack_bar = ft.SnackBar(ft.Text("Vote cannot be empty!"))
+            page.snack_bar = ft.SnackBar(ft.Text("Please select a player to vote for!"))
             page.snack_bar.open = True
-            page.update()
+        page.update()
 
-    vote_input = ft.TextField(label="Enter your vote", width=200, on_submit=submit_vote)
-    page.add(vote_input)
-    page.add(ft.ElevatedButton("Submit Vote", on_click=submit_vote))
+
+    vote_options = ft.Row()
+    for player_name in room.players.keys():
+        if player_name != page.client_storage.get("player_name"):
+            vote_options.controls.append(ft.TextButton(text=player_name, on_click=vote))
+    page.add(ft.Text("Vote for the Faker:"))
+    page.add(vote_options)
+    # Add a button to submit the vote
+    # This button will call the vote function
+    # when clicked, which will handle the voting logic
+
+    
+    #add leave button
+    
+
+
+
+
+    def leave_game(e):
+        room_code = page.client_storage.get("room_code")
+        player_name = page.client_storage.get("player_name")
+        if page.client_storage.get("is_host"):
+            if room_code in rooms:
+                del rooms[room_code]
+                page.client_storage.remove("room_code")
+                page.client_storage.remove("is_host")
+                page.pubsub.send_all_on_topic("PlayerLeft", [player_name, page])
+                page.controls.clear()
+                main_menu(page)
+        else:
+            page.pubsub.send_all_on_topic("PlayerLeft", [player_name, page])
+            page.client_storage.remove("room_code")
+            page.client_storage.remove("is_host")
+            main_menu(page)
+    page.add(ft.ElevatedButton("Leave Game", on_click=leave_game))
+
     page.update()
+
+
 
 
 
